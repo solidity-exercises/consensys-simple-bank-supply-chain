@@ -1,62 +1,72 @@
 pragma solidity ^0.4.13;
 contract SimpleBank {
 
-    /* Fill in the keyword. Hint: We want to protect our users balance from other contracts*/
-    mapping (address => uint) balances;
+    event LogNewCustomer(address customer);
+    event LogDepositMade(address indexed account, uint256 amount);
+    event LogWithdrawal(address indexed account, uint256 amount, uint256 remainingBalance);
 
-    /* Let's make sure everyone knows who owns the bank. Use the appropriate keyword for this*/
-    address owner;
+    mapping (address => uint256) public balances;
 
-    // Events - publicize actions to external listeners
-    /* Add 2 arguments for this event, an accountAddress and an amount */
-    event LogDepositMade();
+    address public owner;
 
-    // Constructor, can receive one or many variables here; only one allowed
-    function SimpleBank() {
-        /* Set the owner to the creator of this contract */
+    modifier onlyOwner() {
+        require(msg.sender == owner, "The msg.sender must be the contract's owner!");
+        _;
     }
 
-    /// @notice Enroll a customer with the bank, giving them 1000 tokens for free
-    /// @return The balance of the user after enrolling
-    function enroll() public returns (uint){
-      /* Set the sender's balance to 1000, return the sender's balance */
+    modifier isNewCustomer(address _customer) {
+        require(balances[_customer] == 0, "The specified address must be a new customer!");
+        _;
+    }
+
+    constructor() public {
+        owner = msg.sender;
+    }
+
+    /// @notice Fallback function - Called if other functions don't match call
+    /// or sent ether without data.
+    /// Typically, called when invalid data is sent
+    /// Added so ether sent to this contract is reverted if the contract fails
+    /// otherwise, the sender's money is transferred to contract
+    function() public payable {
+        revert();
+    }
+
+    /// @notice Enroll a customer with the bank, giving them `_initialAmount` tokens for free
+    /// @param _newCustomer - The address of the new customer.
+    /// @param _initialAmount - Amount of tokens given for free when
+    /// enrolling new customer.
+    /// @dev Surplus one logic serves us as a boolean flag whether
+    /// the customer is new.
+    function enroll(address _newCustomer, uint256 _initialAmount) public onlyOwner isNewCustomer(_newCustomer) {
+        emit LogNewCustomer(_newCustomer);
+
+        balances[_newCustomer] = _initialAmount + 1;
     }
 
     /// @notice Deposit ether into bank
-    /// @return The balance of the user after the deposit is made
-    // Add the appropriate keyword so that this function can receive ether
-    function deposit() public returns (uint) {
-        /* Add the amount to the user's balance, call the event associated with a deposit,
-          then return the balance of the user */
+    function deposit() public payable {
+        require(msg.value > 0, "Zero value deposits are forbidden!");
+
+        emit LogDepositMade(msg.sender, msg.value);
+
+        uint256 oldBalance = balances[msg.sender];
+
+        balances[msg.sender] += msg.value;
+
+        assert(balances[msg.sender] > oldBalance);
     }
 
     /// @notice Withdraw ether from bank
-    /// @dev This does not return any excess ether sent to it
-    /// @param withdrawAmount amount you want to withdraw
-    /// @return The balance remaining for the user
-    function withdraw(uint withdrawAmount) public returns (uint remainingBal) {
-        /* If the sender's balance is at least the amount they want to withdraw,
-           Subtract the amount from the sender's balance, and try to send that amount of ether
-           to the user attempting to withdraw. IF the send fails, add the amount back to the user's balance
-           return the user's balance.*/
+    /// @param _withdrawAmount - Amount you want to withdraw.
+    function withdraw(uint256 _withdrawAmount) public {
+        require(balances[msg.sender] > _withdrawAmount, "You do not have enough balance!");
+        
+        uint256 remainingBalance = balances[msg.sender] - _withdrawAmount - 1;
+        emit LogWithdrawal(msg.sender, _withdrawAmount, remainingBalance);
 
-    }
-
-    /// @notice Get balance
-    /// @return The balance of the user
-    // A SPECIAL KEYWORD prevents function from editing state variables;
-    // allows function to run locally/off blockchain
-    function balance() public constant returns (uint) {
-        /* Get the balance of the sender of this transaction */
-
-    }
-
-    // Fallback function - Called if other functions don't match call or
-    // sent ether without data
-    // Typically, called when invalid data is sent
-    // Added so ether sent to this contract is reverted if the contract fails
-    // otherwise, the sender's money is transferred to contract
-    function () {
-        revert();
+        balances[msg.sender] -= _withdrawAmount;
+        
+        msg.sender.transfer(_withdrawAmount);
     }
 }
