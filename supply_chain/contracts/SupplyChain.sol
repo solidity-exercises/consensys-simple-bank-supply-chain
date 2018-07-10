@@ -1,97 +1,150 @@
 pragma solidity ^0.4.23;
 
+
 contract SupplyChain {
 
-  /* set owner */
-  address owner;
+  event LogForSale(string indexed sku, string skuAsString);
+  event LogSold(string indexed sku, string skuAsString);
+  event LogShipped(string indexed sku, string skuAsString);
+  event LogReceived(string indexed sku, string skuAsString);
+  event LogWithdrawal(address indexed receiver, uint256 amount);
 
-  /* Add a variable called skuCount to track the most recent sku # */
+  enum State { ForSale, Sold, Shipped, Received }
 
-  /* Add a line that creates a public mapping that maps the SKU (a number) to an Item.
-     Call this mappings items
-  */
+  struct Item {
+    uint256 price;
+    bytes23 name;
+    State state;
+    address seller;
+    address buyer;
+  }
 
-  /* Add a line that creates an enum called State. This should have 4 states
-    ForSale
-    Sold
-    Shipped
-    Received
-    (declaring them in this order is important for testing)
-  */
+  mapping (bytes32=>Item) public items;
+  mapping (address=>uint256) public balanceOf;
 
-  /* Create a struct named Item.
-    Here, add a name, sku, price, state, seller, and buyer
-    We've left you to figure out what the appropriate types are,
-    if you need help you can ask around :)
-  */
-
-  /* Create 4 events with the same name as each possible State (see above)
-    Each event should accept one argument, the sku*/
-
-/* Create a modifer that checks if the msg.sender is the owner of the contract */
-
-  modifier verifyCaller (address _address) { require (msg.sender == _address); _;}
-
-  modifier paidEnough(uint _price) { require(msg.value >= _price); _;}
-  modifier checkValue(uint _sku) {
-    //refund them after pay for item (why it is before, _ checks for logic before func)
+  modifier verifyCaller (address _address) { 
+    require (msg.sender == _address); 
     _;
-    uint _price = items[_sku].price;
-    uint amountToRefund = msg.value - _price;
-    items[_sku].buyer.transfer(amountToRefund);
   }
 
-  /* For each of the following modifiers, use what you learned about modifiers
-   to give them functionality. For example, the forSale modifier should require
-   that the item with the given sku has the state ForSale. */
-  modifier forSale
-  modifier sold
-  modifier shipped
-  modifier received
+  modifier checkValue(string _sku) {
+    bytes32 sku = keccak256(abi.encodePacked(_sku));
+    uint256 price = items[sku].price;
+    require(msg.value >= price, "The value sent is not sufficient to buy the item!"); 
 
+    _;
+    
+    if (msg.value > price) {
+      uint256 amountToRefund = msg.value - price;
 
-  constructor() public {
-    /* Here, set the owner as the person who instantiated the contract
-       and set your skuCount to 0. */
+      address buyer = items[sku].buyer;
+
+      uint256 buyerOldBalance = balanceOf[buyer];
+      balanceOf[buyer] += amountToRefund;
+
+      assert(balanceOf[buyer] > buyerOldBalance);
+    }
   }
 
-  function addItem(string _name, uint _price) public {
-    emit ForSale(skuCount);
-    items[skuCount] = Item({name: _name, sku: skuCount, price: _price, state: State.ForSale, seller: msg.sender, buyer: 0});
-    skuCount = skuCount + 1;
+  modifier forSale(string _sku) {
+    bytes32 sku = keccak256(abi.encodePacked(_sku));
+    State state = items[sku].state;
+    require(state == State.ForSale, "The item's state must be ForSale!");
+    _;
   }
 
-  /* Add a keyword so the function can be paid. This function should transfer money
-    to the seller, set the buyer as the person who called this transaction, and set the state
-    to Sold. Be careful, this function should use 3 modifiers to check if the item is for sale,
-    if the buyer paid enough, and check the value after the function is called to make sure the buyer is
-    refunded any excess ether sent. Remember to call the event associated with this function!*/
+  modifier sold(string _sku) {
+    bytes32 sku = keccak256(abi.encodePacked(_sku));
+    State state = items[sku].state;
+    require(state == State.Sold, "The item's state must be Sold!");
+    _;
+  }
 
-  function buyItem(uint sku)
+  modifier shipped(string _sku) {
+    bytes32 sku = keccak256(abi.encodePacked(_sku));
+    State state = items[sku].state;
+    require(state == State.Shipped, "The item's state must be Shipped!");
+    _;
+  }
+
+  modifier received(string _sku) {
+    bytes32 sku = keccak256(abi.encodePacked(_sku));
+    State state = items[sku].state;
+    require(state == State.Received, "The item's state must be Received!");
+    _;
+  }
+
+  modifier checkWithdrawal(uint256 _value) {
+    require(_value > 0, "Zero value transfers are not allowed!");
+    require(balanceOf[msg.sender] >= _value, "You do not have enough balanceOf!");
+    _;
+  }
+
+  function () public payable {
+    revert("Wrong invocation reverted from the fallback!");
+  }
+
+  function addItem(string _sku, bytes23 _name, uint256 _price) public {
+    emit LogForSale(_sku, _sku);
+
+    bytes32 sku = keccak256(abi.encodePacked(_sku));
+
+    items[sku] = Item({price: _price, name: _name, state: State.ForSale, seller: msg.sender, buyer: address(0)});
+  }
+
+  function buyItem(string _sku)
     public
-  {}
+    payable
+    forSale(_sku)
+    checkValue(_sku)
+  {
+    emit LogSold(_sku, _sku);
 
-  /* Add 2 modifiers to check if the item is sold already, and that the person calling this function
-  is the seller. Change the state of the item to shipped. Remember to call the event associated with this function!*/
-  function shipItem(uint sku)
-    public
-  {}
+    bytes32 sku = keccak256(abi.encodePacked(_sku));
 
-  /* Add 2 modifiers to check if the item is shipped already, and that the person calling this function
-  is the buyer. Change the state of the item to received. Remember to call the event associated with this function!*/
-  function receiveItem(uint sku)
-    public
-  {}
+    items[sku].state = State.Sold;
 
-  /* We have these functions completed so we can run tests, just ignore it :) */
-  function fetchItem(uint _sku) public view returns (string name, uint sku, uint price, uint state, address seller, address buyer) {
-    name = items[_sku].name;
-    sku = items[_sku].sku;
-    price = items[_sku].price;
-    state = uint(items[_sku].state);
-    seller = items[_sku].seller;
-    buyer = items[_sku].buyer;
-    return (name, sku, price, state, seller, buyer);
+    uint256 price = items[sku].price;
+
+    if (price > 0) {
+      address seller = items[sku].seller;
+
+      uint256 sellerOldBalance = balanceOf[seller];
+      balanceOf[seller] += price;
+
+      assert(balanceOf[seller] > sellerOldBalance);
+    }
   }
 
+  function shipItem(string _sku)
+    public
+    sold(_sku)
+    verifyCaller(items[keccak256(abi.encodePacked(_sku))].seller)
+  {
+    emit LogShipped(_sku, _sku);
+
+    bytes32 sku = keccak256(abi.encodePacked(_sku));
+
+    items[sku].state = State.Shipped;
+  }
+
+  function receiveItem(string _sku)
+    public
+    shipped(_sku)
+    verifyCaller(items[keccak256(abi.encodePacked(_sku))].buyer)
+  {
+    emit LogReceived(_sku, _sku);
+
+    bytes32 sku = keccak256(abi.encodePacked(_sku));
+
+    items[sku].state = State.Received;
+  }
+
+  function withdraw(uint256 _value) public checkWithdrawal(_value) {
+    emit LogWithdrawal(msg.sender, _value);
+
+    balanceOf[msg.sender] -= _value;
+
+    msg.sender.transfer(_value);
+  }
 }
